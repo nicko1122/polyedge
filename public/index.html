@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PolyEdge | Polymarket Trader Monitor & Analytics</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="navbar">
+      <div class="brand">
+        <div class="logo-icon">⚡</div>
+        <div class="brand-text">
+          <h1>PolyEdge Monitor</h1>
+          <span class="sub-text">Polymarket BTC 5m Algorithmic Trader Monitor</span>
+        </div>
+      </div>
+      
+      <div class="trader-badge">
+        <div class="trader-avatar">🎯</div>
+        <div class="trader-info">
+          <div class="trader-name">
+            <span id="traderNameDisplay">目標監視地址</span>
+            <span class="handle-tag" id="handleTag">可隨時切換</span>
+          </div>
+          <div class="trader-addr-input-group">
+            <input type="text" id="targetAddrInput" value="0x2011550a8fd844aa22b78d0f039bb72befcb71fa" placeholder="請輸入 0x... 錢包地址" style="width: 320px; font-family: var(--font-mono); font-size: 12px; padding: 4px 10px;">
+            <button class="btn-primary" id="btnSwitchAddr" style="padding: 4px 12px; font-size: 12px;">切換監視</button>
+            <button class="btn-copy" id="btnCopyAddr" title="複製地址">📋</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="status-indicator" id="statusBadge">
+        <span class="pulse-dot"></span>
+        <span id="statusText">即時監控中 (LIVE)</span>
+      </div>
+    </header>
+
+    <!-- Top KPI Cards -->
+    <section class="kpi-grid">
+      <div class="kpi-card glass">
+        <div class="kpi-label">總交易量 (Total Volume)</div>
+        <div class="kpi-value" id="kpiTotalVolume">$0.00</div>
+        <div class="kpi-footer" id="kpiBtcVolumeShare">BTC 5m: $0.00 (0%)</div>
+      </div>
+
+      <div class="kpi-card glass">
+        <div class="kpi-label">預估淨收益 (Est. Net PnL)</div>
+        <div class="kpi-value" id="kpiNetPnL">$0.00</div>
+        <div class="kpi-footer" id="kpiPnLStatus">結算市場總數: 0</div>
+      </div>
+
+      <div class="kpi-card glass">
+        <div class="kpi-label">勝率 (Win Rate)</div>
+        <div class="kpi-value highlight-cyan" id="kpiWinRate">0.0%</div>
+        <div class="kpi-footer" id="kpiWinMarkets">獲利市場: 0 / 0</div>
+      </div>
+
+      <div class="kpi-card glass">
+        <div class="kpi-label">交易總筆數 (Total Trades)</div>
+        <div class="kpi-value" id="kpiTotalTrades">0</div>
+        <div class="kpi-footer" id="kpiRedeemCount">兌換紅利(Redeem): 0 筆</div>
+      </div>
+    </section>
+
+    <!-- Main Navigation Tabs -->
+    <nav class="tab-bar">
+      <button class="tab-btn active" data-tab="liveStreamTab">
+        <span class="icon">📡</span> 即時交易串流 (Live Stream)
+      </button>
+      <button class="tab-btn" data-tab="analyticsTab">
+        <span class="icon">📊</span> 戰績與策略分析 (Analytics)
+      </button>
+      <button class="tab-btn" data-tab="backfillTab">
+        <span class="icon">🔄</span> 歷史數據回補 (Backfill)
+      </button>
+      <button class="tab-btn" data-tab="explorerTab">
+        <span class="icon">🔍</span> 交易明細探索 (Trade Explorer)
+      </button>
+      <button class="tab-btn" data-tab="slugsTab">
+        <span class="icon">🏷️</span> 最近 50 個市場 (By Slug)
+      </button>
+    </nav>
+
+    <!-- Tab Contents -->
+    <main class="content-area">
+      <!-- 1. Live Stream Tab -->
+      <div class="tab-content active" id="liveStreamTab">
+        <div class="stream-header glass">
+          <div class="stream-controls">
+            <div class="filter-group">
+              <label>市場過濾:</label>
+              <select id="streamMarketFilter">
+                <option value="all">全部市場 (All Markets)</option>
+                <option value="btc_5m" selected>僅 BTC 5m (BTC 5-Min Only)</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <label>方向:</label>
+              <select id="streamSideFilter">
+                <option value="all">全部方向 (All)</option>
+                <option value="Up">🟢 看漲 (UP)</option>
+                <option value="Down">🔴 看跌 (DOWN)</option>
+              </select>
+            </div>
+          </div>
+          <div class="stream-stats">
+            <span class="badge" id="liveTickerCount">即時筆數: 0</span>
+            <button class="btn-secondary" id="btnClearFeed">清空列表</button>
+          </div>
+        </div>
+
+        <div class="stream-feed-container glass" id="streamFeed">
+          <div class="empty-placeholder">
+            <div class="pulse-loader"></div>
+            <p>正在監聽鏈上即時交易數據 (Polygon PoS)...</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Analytics Tab -->
+      <div class="tab-content" id="analyticsTab">
+        <div class="charts-grid">
+          <!-- Chart 1: UP vs DOWN Direction -->
+          <div class="chart-card glass">
+            <h3>🎯 btc-updown-5m 看漲 vs 看跌 比例與金額</h3>
+            <div class="chart-wrapper">
+              <canvas id="chartDirection"></canvas>
+            </div>
+          </div>
+
+          <!-- Chart 2: Price Bracket Distribution -->
+          <div class="chart-card glass">
+            <h3>💰 買入合約價格分布 (掛單 / 成交位階)</h3>
+            <div class="chart-wrapper">
+              <canvas id="chartPrices"></canvas>
+            </div>
+          </div>
+
+          <!-- Chart 3: Hourly Activity -->
+          <div class="chart-card glass full-width">
+            <h3>⏰ 每小時交易頻率與資金量 (UTC)</h3>
+            <div class="chart-wrapper">
+              <canvas id="chartHourly"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Backfill Tab -->
+      <div class="tab-content" id="backfillTab">
+        <div class="backfill-panel glass">
+          <div class="panel-info">
+            <h2>🔄 歷史交易數據回補 (Historical Backfill)</h2>
+            <p>透過 Polymarket API 與 Polygon 區塊鏈 Log 回補該地址過去所有的交易與兌換紀錄，自動寫入本地 SQLite 資料庫並進行數據分析。</p>
+          </div>
+
+          <div class="backfill-controls">
+            <div class="input-group">
+              <label>回補深度 (頁數):</label>
+              <select id="backfillPagesSelect">
+                <option value="10">10 頁 (~1,000 筆紀錄)</option>
+                <option value="50" selected>50 頁 (~5,000 筆紀錄)</option>
+                <option value="100">100 頁 (~10,000 筆紀錄)</option>
+                <option value="200">200 頁 (全量深度回補)</option>
+              </select>
+            </div>
+            <button class="btn-primary" id="btnStartBackfill">🚀 開始回補歷史數據</button>
+          </div>
+
+          <div class="progress-box hidden" id="backfillProgressBox">
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill" id="backfillProgressBar" style="width: 0%;"></div>
+            </div>
+            <div class="progress-status" id="backfillStatusText">準備中...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. Explorer Tab -->
+      <div class="tab-content" id="explorerTab">
+        <div class="explorer-header glass">
+          <div class="search-bar">
+            <input type="text" id="explorerSearchInput" placeholder="搜尋交易 Hash, 市場標題, 條件 ID...">
+            <button class="btn-secondary" id="btnExplorerSearch">搜尋</button>
+          </div>
+          <div class="filter-group">
+            <select id="explorerBtcFilter">
+              <option value="false">全部市場</option>
+              <option value="true" selected>僅 btc-updown-5m</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="table-container glass">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>時間 (Timestamp)</th>
+                <th>類型 (Type)</th>
+                <th>方向 (Outcome)</th>
+                <th>價格 (Price)</th>
+                <th>數量 (Size)</th>
+                <th>USDC 金額</th>
+                <th>市場標題 (Market Title)</th>
+                <th>區塊鏈 Tx</th>
+              </tr>
+            </thead>
+            <tbody id="explorerTableBody">
+              <tr><td colspan="8" class="text-center">載入中...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pagination-bar">
+          <button class="btn-secondary" id="btnPrevPage">◀ 上一頁</button>
+          <span id="pageInfoText">第 1 頁</span>
+          <button class="btn-secondary" id="btnNextPage">下一頁 ▶</button>
+        </div>
+      </div>
+
+      <!-- 5. Slugs Tab (最近 50 個 by Slug) -->
+      <div class="tab-content" id="slugsTab">
+        <div class="explorer-header glass">
+          <div class="panel-info">
+            <h2 style="font-size: 18px; font-weight: 600;">🏷️ 最近 50 個市場列表 (Recent 50 Slugs)</h2>
+            <p style="font-size: 13px; color: var(--text-muted);">格式包含 Slug ID, 損益 (PNL), 投報率 (ROI) 與 交易量 (VOL)</p>
+          </div>
+          <button class="btn-secondary" id="btnRefreshSlugs">🔄 重新整理</button>
+        </div>
+
+        <div class="table-container glass">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>SLUG</th>
+                <th>PNL (損益)</th>
+                <th>ROI (投報率)</th>
+                <th>VOL (交易量)</th>
+                <th>市場標題 (Title)</th>
+                <th>最後交易時間</th>
+                <th>筆數</th>
+              </tr>
+            </thead>
+            <tbody id="slugsTableBody">
+              <tr><td colspan="7" class="text-center">載入中...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Timeline Modal -->
+  <div class="modal-overlay hidden" id="timelineModal">
+    <div class="modal-content glass">
+      <div class="modal-header">
+        <h3 id="timelineModalTitle">市場交易時間軸 (Market Timeline)</h3>
+        <button class="btn-secondary" id="btnCloseTimelineModal">✕ 關閉</button>
+      </div>
+      <div class="modal-body">
+        <textarea id="timelineTextarea" readonly style="width: 100%; height: 380px; background: rgba(10, 15, 26, 0.9); color: var(--text-main); font-family: var(--font-mono); font-size: 13px; padding: 12px; border: 1px solid var(--border-color); border-radius: 8px; resize: vertical; line-height: 1.6;"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-primary" id="btnCopyTimelineText">📋 複製時間軸文字</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

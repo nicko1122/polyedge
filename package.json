@@ -1,0 +1,35 @@
+{
+  "name": "polyedge",
+  "version": "1.0.0",
+  "description": "Polymarket Trader Real-time On-Chain Monitor & Analytics API Engine",
+  "main": "index.js",
+  "scripts": {
+    "start": "node server.js",
+    "monitor": "node cli.js monitor",
+    "stats": "node cli.js stats",
+    "slugs": "node cli.js slugs",
+    "backfill": "node cli.js backfill"
+  },
+  "keywords": [
+    "polymarket",
+    "polygon",
+    "blockchain",
+    "trading-bot",
+    "monitor",
+    "analytics",
+    "btc-updown-5m",
+    "websocket"
+  ],
+  "author": "PolyEdge Developer Team",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.18.1",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "ethers": "^6.17.0",
+    "express": "^5.2.1",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^6.0.1",
+    "ws": "^8.21.1"
+  }
+}

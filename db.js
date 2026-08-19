@@ -44,6 +44,28 @@ async function getDB() {
       UNIQUE(transaction_hash, condition_id, timestamp, side, size) ON CONFLICT IGNORE
     );
 
+    -- ⚠⚠ 真正生效的去重是下面的 ux_trades_dedup,不是上面表定義的 UNIQUE。
+    -- SQLite 的 UNIQUE 不把兩個 NULL 視為相等,所以任何可為 NULL 的欄位
+    -- 只要是 NULL,那一筆就繞過約束:
+    --   REDEEM        side=NULL         → 2026-08-16 清出 7,774 筆重複
+    --   MAKER_REBATE  condition_id=NULL → 2026-08-19 又清出 10 筆
+    -- 第一次修只 COALESCE 了 side/outcome、漏掉 condition_id,同一個陷阱
+    -- 就在另一個型別上重演。**每一個可為 NULL 的欄都要 COALESCE,
+    -- 少一欄那一欄就失效。**
+    -- 而且這個索引原本只存在於營運中的資料庫、不在代碼裡 —— 重建資料庫
+    -- 就完全沒有去重,症狀要幾天後做分析才會浮現(而分析會直接失真:
+    -- 重複的 REDEEM 曾讓「對手每窗 +18」這個結論整個站不住)。
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_trades_dedup ON trades(
+      proxy_wallet,
+      COALESCE(transaction_hash, ''),
+      COALESCE(condition_id, ''),
+      timestamp,
+      type,
+      COALESCE(side, ''),
+      COALESCE(outcome, ''),
+      size
+    );
+
     CREATE INDEX IF NOT EXISTS idx_trades_wallet ON trades(proxy_wallet);
     CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp);
     CREATE INDEX IF NOT EXISTS idx_trades_is_btc ON trades(is_btc_5m);

@@ -287,12 +287,12 @@ wss.on('connection', async (ws) => {
 });
 
 const PORT = process.env.PORT || 3000;
-const HOST = process.env.HOST || '0.0.0.0';
+const HOST = process.env.HOST || '::';
 
 server.listen(PORT, HOST, () => {
   console.log(`=======================================================`);
   console.log(`🚀 POLYEDGE - Polymarket Trader Monitor & Analytics`);
   console.log(`🎯 Target Trader Address: ${currentTargetAddress}`);
-  console.log(`🌐 Listening on: http://${HOST}:${PORT}`);
+  console.log(`🌐 Listening on Dual-Stack (IPv4 & IPv6 / Tailscale): http://0.0.0.0:${PORT} & http://[::]:${PORT}`);
   console.log(`=======================================================`);
 });

@@ -5,6 +5,13 @@ const path = require('path');
 const DB_PATH = path.join(__dirname, 'polyedge.db');
 
 let dbInstance = null;
+let dbLock = Promise.resolve();
+
+function withDBLock(fn) {
+  const next = dbLock.then(() => fn(), () => fn());
+  dbLock = next.catch(() => {});
+  return next;
+}
 
 async function getDB() {
   if (dbInstance) return dbInstance;
@@ -59,51 +66,59 @@ function isBtc5m(slug, title) {
 }
 
 async function insertTrades(tradesList) {
-  const db = await getDB();
-  const stmt = await db.prepare(`
-    INSERT OR IGNORE INTO trades (
-      proxy_wallet, timestamp, condition_id, type, side, size, usdc_size,
-      price, asset, outcome, outcome_index, title, slug, event_slug,
-      transaction_hash, is_btc_5m
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
+  if (!Array.isArray(tradesList) || tradesList.length === 0) return 0;
 
-  let insertedCount = 0;
-  await db.exec('BEGIN TRANSACTION');
-  try {
-    for (const t of tradesList) {
-      const btc = isBtc5m(t.slug, t.title);
-      const res = await stmt.run(
-        t.proxyWallet || t.user || '0x2011550a8fd844aa22b78d0f039bb72befcb71fa',
-        t.timestamp,
-        t.conditionId || null,
-        t.type || 'TRADE',
-        t.side || null,
-        t.size || 0,
-        t.usdcSize || (t.size && t.price ? t.size * t.price : 0),
-        t.price || 0,
-        t.asset || null,
-        t.outcome || null,
-        t.outcomeIndex !== undefined ? t.outcomeIndex : null,
-        t.title || null,
-        t.slug || null,
-        t.eventSlug || null,
-        t.transactionHash || null,
-        btc
-      );
-      if (res.changes > 0) {
-        insertedCount++;
+  return withDBLock(async () => {
+    const db = await getDB();
+    const stmt = await db.prepare(`
+      -- ⚠ 表上的 UNIQUE(transaction_hash, condition_id, timestamp, side, size)
+      -- 對 REDEEM 無效:SQLite 的 UNIQUE 不把兩個 NULL 視為相等,而 REDEEM 的
+      -- side 是 NULL → 每跑一次 backfill 就多插一份(2026-08-16 清出 7,774 筆
+      -- 重複)。真正生效的是 ux_trades_dedup 索引(COALESCE 正規化 NULL)。
+      INSERT OR IGNORE INTO trades (
+        proxy_wallet, timestamp, condition_id, type, side, size, usdc_size,
+        price, asset, outcome, outcome_index, title, slug, event_slug,
+        transaction_hash, is_btc_5m
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    let insertedCount = 0;
+    await db.exec('BEGIN IMMEDIATE TRANSACTION');
+    try {
+      for (const t of tradesList) {
+        const btc = isBtc5m(t.slug, t.title);
+        const res = await stmt.run(
+          (t.proxyWallet || t.user || '0x2011550a8fd844aa22b78d0f039bb72befcb71fa').toLowerCase(),
+          t.timestamp,
+          t.conditionId || null,
+          t.type || 'TRADE',
+          t.side || null,
+          t.size || 0,
+          t.usdcSize || (t.size && t.price ? t.size * t.price : 0),
+          t.price || 0,
+          t.asset || null,
+          t.outcome || null,
+          t.outcomeIndex !== undefined ? t.outcomeIndex : null,
+          t.title || null,
+          t.slug || null,
+          t.eventSlug || null,
+          t.transactionHash || null,
+          btc
+        );
+        if (res.changes > 0) {
+          insertedCount++;
+        }
       }
+      await db.exec('COMMIT');
+    } catch (err) {
+      try { await db.exec('ROLLBACK'); } catch (_) {}
+      throw err;
+    } finally {
+      await stmt.finalize();
     }
-    await db.exec('COMMIT');
-  } catch (err) {
-    await db.exec('ROLLBACK');
-    throw err;
-  } finally {
-    await stmt.finalize();
-  }
 
-  return insertedCount;
+    return insertedCount;
+  });
 }
 
 async function getTradesCount() {

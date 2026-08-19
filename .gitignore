@@ -3,3 +3,9 @@ polyedge.db
 .env
 *.log
 .DS_Store
+
+# DB 備份與 SQLite 邊車檔 —— polyedge.db 已排除,但備份/WAL 沒有,
+# 而它們同樣是數百 MB 的資料庫副本(2026-08-19 差點推上 public repo)
+polyedge.db.bak-*
+*.db-wal
+*.db-shm

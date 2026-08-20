@@ -45,24 +45,37 @@ async function getDB() {
     );
 
     -- ⚠⚠ 真正生效的去重是下面的 ux_trades_dedup,不是上面表定義的 UNIQUE。
-    -- SQLite 的 UNIQUE 不把兩個 NULL 視為相等,所以任何可為 NULL 的欄位
-    -- 只要是 NULL,那一筆就繞過約束:
-    --   REDEEM        side=NULL         → 2026-08-16 清出 7,774 筆重複
-    --   MAKER_REBATE  condition_id=NULL → 2026-08-19 又清出 10 筆
-    -- 第一次修只 COALESCE 了 side/outcome、漏掉 condition_id,同一個陷阱
-    -- 就在另一個型別上重演。**每一個可為 NULL 的欄都要 COALESCE,
-    -- 少一欄那一欄就失效。**
-    -- 而且這個索引原本只存在於營運中的資料庫、不在代碼裡 —— 重建資料庫
-    -- 就完全沒有去重,症狀要幾天後做分析才會浮現(而分析會直接失真:
-    -- 重複的 REDEEM 曾讓「對手每窗 +18」這個結論整個站不住)。
+    --
+    -- 這個索引被修過三次,每次都是同一個病的不同面貌:
+    --   2026-08-16  REDEEM 的 side=NULL          → 清 7,774 筆
+    --   2026-08-19  MAKER_REBATE 的 condition_id=NULL → 又清 10 筆
+    --               (首修只 COALESCE 了 side/outcome,漏掉 condition_id)
+    --   2026-08-20  REDEEM 的 outcome 填法不一致  → 又清 220 筆
+    --               同一筆鏈上贖回被抓兩次,tx / timestamp / condition_id / size
+    --               全同,**只差 outcome:一次 NULL、一次 'Up'**。而 outcome 在
+    --               鍵裡 → COALESCE(NULL,'')='' ≠ 'Up' → 兩列都放行。
+    --
+    -- 兩條教訓,順序不能顛倒:
+    --   ① SQLite 的 UNIQUE 不把兩個 NULL 視為相等 → 每個可為 NULL 的欄都要 COALESCE
+    --   ② **COALESCE 還不夠** —— 欄位若不屬於該筆紀錄的「經濟身分」,
+    --      放進鍵裡就會在填法不一致時放行重複。REDEEM 由
+    --      (wallet, tx, condition_id, timestamp, size) 唯一決定;
+    --      outcome/side 是 TRADE 的身分(UP≠DOWN),不是 REDEEM 的。
+    --      所以用 CASE 讓鍵隨 type 變 —— 對 TRADE 完全等價(實測違規組 0),
+    --      對 REDEEM 才把那兩欄排除。
+    --
+    -- ⚠ 查重複時用的鍵必須跟索引一致:用較鬆的鍵查會把同一 tx 的 UP/DOWN
+    --   兩腿誤判成重複(2026-08-19 因此虛報 223 組)。
+    -- ⚠ 索引一度只存在於營運中的資料庫、不在這個檔裡 —— 重建就完全沒有去重,
+    --   而症狀要幾天後做分析才浮現。
     CREATE UNIQUE INDEX IF NOT EXISTS ux_trades_dedup ON trades(
       proxy_wallet,
       COALESCE(transaction_hash, ''),
       COALESCE(condition_id, ''),
       timestamp,
       type,
-      COALESCE(side, ''),
-      COALESCE(outcome, ''),
+      CASE WHEN type = 'REDEEM' THEN '' ELSE COALESCE(side, '') END,
+      CASE WHEN type = 'REDEEM' THEN '' ELSE COALESCE(outcome, '') END,
       size
     );
 
@@ -110,7 +123,15 @@ async function insertTrades(tradesList) {
       for (const t of tradesList) {
         const btc = isBtc5m(t.slug, t.title);
         const res = await stmt.run(
-          (t.proxyWallet || t.user || '0x2011550a8fd844aa22b78d0f039bb72befcb71fa').toLowerCase(),
+          // ⚠ 這裡曾經寫死 fallback 到對手地址 '0x2011550a…'。
+          // 資料庫現在同時存多個錢包(2026-08-20 起也存我們自己的 funder),
+          // 一旦 API 少給 proxyWallet,那些列會全部被掛到對手名下 ——
+          // 而且不會報錯,只會讓兩個人的帳混在一起。缺就丟,不要猜。
+          (() => {
+            const w = t.proxyWallet || t.user;
+            if (!w) throw new Error('activity 列缺 proxyWallet/user —— 不猜錢包');
+            return String(w).toLowerCase();
+          })(),
           t.timestamp,
           t.conditionId || null,
           t.type || 'TRADE',

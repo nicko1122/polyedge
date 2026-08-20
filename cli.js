@@ -33,8 +33,18 @@ async function main() {
       pages = parseInt(pageArg.split('=')[1], 10) || 50;
     }
 
-    console.log(`\n🔄 Starting historical backfill for trader ${address} (${pages} pages)...`);
-    const result = await backfillHistory({ targetAddress: address, maxPages: pages });
+    // --tail:只補「最近」那一段(從現在往回 pages 頁),不動歷史續傳指標。
+    // ⚠ 2026-08-20 加。backfill 現在會續傳(修好前它每次都從 now 開始),
+    //   所以預設模式會從歷史斷點往【更早】挖 —— 那對「保持最新」是錯的方向。
+    //   排程用 --tail,手動補歷史用預設。兩者用途不同,不該共用一個模式。
+    const tail = args.includes('--tail');
+    console.log(`\n🔄 Starting ${tail ? 'TAIL (keep-current)' : 'historical'} backfill `
+      + `for trader ${address} (${pages} pages)...`);
+    const result = await backfillHistory({
+      targetAddress: address,
+      maxPages: pages,
+      ...(tail ? { restart: true } : {}),
+    });
     console.log(`\n✅ Backfill complete! Total fetched: ${result.totalFetched}, Total new inserted: ${result.totalInserted}`);
 
     const counts = await getTradesCount();

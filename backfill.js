@@ -22,10 +22,15 @@ async function backfillHistory(options = {}) {
   // ⚠ 而且那個鍵是**全域**的,沒有按地址分 —— 回填 A 會覆蓋 B 的續傳位置。
   //   兩個問題都修:鍵帶地址,而且真的拿它當起點。
   const resumeKey = `backfill_oldest_${address.toLowerCase()}`;
+  // 有界回補:monitor 發現缺口時呼叫 —— 從 endTs 往回走到 stopAtTs 為止。
+  // 這種模式不碰 resumeKey(它是「歷史回填走到哪」的指標,與缺口修補無關)。
+  const stopAtTs = Number.isFinite(options.stopAtTs) ? options.stopAtTs : null;
+  const rangeMode = stopAtTs !== null;
   let totalFetched = 0;
   let totalInserted = 0;
-  let currentEndTs = Math.floor(Date.now() / 1000);
-  if (options.restart !== true) {
+  let currentEndTs = Number.isFinite(options.endTs)
+    ? options.endTs : Math.floor(Date.now() / 1000);
+  if (!rangeMode && options.restart !== true) {
     const saved = await getSyncState(resumeKey);
     const savedTs = saved ? parseInt(saved, 10) : NaN;
     if (Number.isFinite(savedTs) && savedTs > 0) {
@@ -94,7 +99,12 @@ async function backfillHistory(options = {}) {
         currentEndTs = oldestTs;
       }
 
-      await setSyncState(resumeKey, oldestTs);
+      if (!rangeMode) await setSyncState(resumeKey, oldestTs);
+      // 有界模式:走過頭就停,不要一路挖到創世
+      if (rangeMode && oldestTs <= stopAtTs) {
+        hasMore = false;
+        break;
+      }
 
       // Brief pause to respect API rate limits
       await new Promise(r => setTimeout(r, 200));
